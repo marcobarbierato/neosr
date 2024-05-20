@@ -3,7 +3,7 @@ from collections import OrderedDict
 import torch
 from torch import nn
 
-from neosr.archs.vgg_arch import VGGFeatureExtractor
+from neosr.archs.resnet_arch import ResNetFeatureExtractor
 from neosr.losses.basic_loss import chc
 from neosr.utils.registry import LOSS_REGISTRY
 
