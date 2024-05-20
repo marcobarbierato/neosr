@@ -480,14 +480,16 @@ class default():
         #avg losses
         print_freq = self.opt['logger']['print_freq']
         if current_iter % print_freq == 0:
+            l_d_loss = torch.tensor( ((self.loss_d_fake_sum + self.loss_d_real_sum) / 2 ) / print_freq )
+            loss_dict['l_d_tot_mean'] = l_d_loss
             loss_dict['l_g_tot_mean'] = torch.tensor(self.loss_g_sum / print_freq)
             self.loss_g_sum = 0
             loss_dict['l_d_fake_mean'] = torch.tensor(self.loss_d_fake_sum / print_freq)
             self.loss_d_fake_sum = 0
             loss_dict['l_d_real_mean'] = torch.tensor(self.loss_d_real_sum / print_freq)
             self.loss_d_real_sum = 0
-            l_d_loss = torch.tensor( ((self.loss_d_fake_sum + self.loss_d_real_sum) / 2 ) / print_freq )
-            loss_dict['l_d_tot_mean'] = l_d_loss
+            
+            
             
         self.log_dict = self.reduce_loss_dict(loss_dict)
 
