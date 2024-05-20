@@ -39,7 +39,7 @@ class ResNetPerceptualLoss(nn.Module):
         criterion: str = "huber",
         **kwargs,
     ) -> None:
-        super(PerceptualLoss, self).__init__()
+        super(ResNetPerceptualLoss, self).__init__()
         self.perceptual_weight = perceptual_weight
         self.layer_weights = layer_weights
         
