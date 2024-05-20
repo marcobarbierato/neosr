@@ -165,8 +165,8 @@ class default():
             self.cri_luma = None
 
         # Wavelet Guided loss
-        self.wavelet_guided = self.opt["train"].get("wavelet_guided", False)
-        if self.wavelet_guided:
+        self.wavelet_guided = self.opt["train"].get("wavelet_guided", "off")
+        if self.wavelet_guided == "on" or self.wavelet_guided == "disc":
             logger = get_root_logger()
             logger.info('Loss [Wavelet-Guided] enabled.')
             self.wg_pw = train_opt.get("wg_pw", 0.01)
@@ -184,7 +184,7 @@ class default():
 
         if pix_losses_bool is False and percep_losses_bool is False:
             raise ValueError('Both pixel/mssim and perceptual losses are None. Please enable at least one.')
-        if self.wavelet_guided:
+        if self.wavelet_guided == "on":
             if self.cri_perceptual is None and self.cri_dists is None:
                 msg = "Please enable at least one perceptual loss with weight =>1.0 to use Wavelet Guided"
                 raise ValueError(msg)
@@ -308,7 +308,7 @@ class default():
             self.lq_interp = F.interpolate(self.lq, scale_factor=self.scale, mode='bicubic')
 
             # wavelet guided loss
-            if self.wavelet_guided:
+            if self.wavelet_guided == "on" or self.wavelet_guided == "disc":
                 (
                     LL,
                     LH,
@@ -328,7 +328,7 @@ class default():
             if (current_iter % self.net_d_iters == 0 and current_iter > self.net_d_init_iters):
                 # pixel loss
                 if self.cri_pix:
-                    if self.wavelet_guided:
+                    if self.wavelet_guided == "on":
                         l_g_pix = self.wg_pw * self.cri_pix(LL, LL_gt)
                         l_g_pix_lh = self.wg_pw_lh * self.cri_pix(LH, LH_gt)
                         l_g_pix_hl = self.wg_pw_hl * self.cri_pix(HL, HL_gt)
@@ -340,7 +340,7 @@ class default():
                     loss_dict['l_g_pix'] = l_g_pix
                 # ssim loss
                 if self.cri_mssim:
-                    if self.wavelet_guided:
+                    if self.wavelet_guided == "on":
                         l_g_mssim = self.wg_pw * self.cri_mssim(LL, LL_gt)
                         l_g_mssim_lh = self.wg_pw_lh * self.cri_mssim(LH, LH_gt)
                         l_g_mssim_hl = self.wg_pw_hl * self.cri_mssim(HL, HL_gt)
@@ -424,7 +424,7 @@ class default():
 
                 if self.cri_gan:
                 # real
-                    if self.wavelet_guided:
+                    if self.wavelet_guided == "on" or self.wavelet_guided == "disc":
                         real_d_pred = self.net_d(combined_HF_gt)
                     else:
                         real_d_pred = self.net_d(self.gt)
@@ -433,7 +433,7 @@ class default():
                     self.loss_d_real_sum += l_d_real
                     loss_dict['out_d_real'] = torch.mean(real_d_pred.detach())
                 # fake
-                    if self.wavelet_guided:
+                    if self.wavelet_guided == "on" or self.wavelet_guided == "disc":
                         fake_d_pred = self.net_d(combined_HF.detach().clone())
                     else:
                         fake_d_pred = self.net_d(self.output.detach().clone())
@@ -480,14 +480,16 @@ class default():
         #avg losses
         print_freq = self.opt['logger']['print_freq']
         if current_iter % print_freq == 0:
+            l_d_loss = torch.tensor( ((self.loss_d_fake_sum + self.loss_d_real_sum) / 2 ) / print_freq )
+            loss_dict['l_d_tot_mean'] = l_d_loss
             loss_dict['l_g_tot_mean'] = torch.tensor(self.loss_g_sum / print_freq)
             self.loss_g_sum = 0
             loss_dict['l_d_fake_mean'] = torch.tensor(self.loss_d_fake_sum / print_freq)
             self.loss_d_fake_sum = 0
             loss_dict['l_d_real_mean'] = torch.tensor(self.loss_d_real_sum / print_freq)
             self.loss_d_real_sum = 0
-            l_d_loss = torch.tensor( ((self.loss_d_fake_sum + self.loss_d_real_sum) / 2 ) / print_freq )
-            loss_dict['l_d_tot_mean'] = l_d_loss
+            
+            
             
         self.log_dict = self.reduce_loss_dict(loss_dict)
 
@@ -651,11 +653,13 @@ class default():
         self.is_train = False
 
         dataset_name = dataloader.dataset.opt['name']
-        dataset_type = dataloader.dataset.opt['type']
+        
+        dataset_type = dataloader.dataset.opt['type'] 
         if dataset_type == 'single':
             with_metrics = False
         else:
             with_metrics = self.opt['val'].get('metrics') is not None
+            
         use_pbar = self.opt['val'].get('pbar', False)
 
         if with_metrics:
@@ -689,7 +693,9 @@ class default():
             del self.lq
             del self.output
             torch.cuda.empty_cache()
-
+            
+            # check if dataset has save_img option, and if so overwrite global save_img option
+            save_img = dataloader.dataset.opt.get('save_img', save_img)
             if save_img:
                 if self.opt['is_train']:
                     save_img_path = osp.join(self.opt['path']['visualization'], img_name,
@@ -702,9 +708,12 @@ class default():
                         save_img_path = osp.join(self.opt['path']['visualization'], dataset_name,
                                                  f'{img_name}_{self.opt["name"]}.png')
                 imwrite(sr_img, save_img_path)
-                if not with_metrics:
-                    tb_logger.add_image(f'{img_name}/{current_iter}', sr_img, global_step=current_iter, dataformats='HWC')
 
+            # check for dataset option save_tb, to save images on tb_logger    
+            save_tb = dataloader.dataset.opt.get('save_tb', False)
+            if save_tb:
+                tb_logger.add_image(f'{img_name}/{current_iter}', sr_img, global_step=current_iter, dataformats='HWC')
+                
             if with_metrics:
                 # calculate metrics
                 for name, opt_ in self.opt['val']['metrics'].items():
