@@ -93,7 +93,7 @@ class desrgan(nn.Module):
     """
 
     def __init__(self, num_in_ch=3, num_out_ch=3, scale=upscale, num_feat=64, num_block=23, num_grow_ch=32):
-        super(esrgan, self).__init__()
+        super(desrgan, self).__init__()
         self.scale = scale
         if scale == 2:
             num_in_ch = num_in_ch * 4
