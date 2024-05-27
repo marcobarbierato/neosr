@@ -111,9 +111,9 @@ class esrgan(nn.Module):
 
     def forward(self, x):
         if self.scale == 2:
-            feat = pixel_unshuffle(x, scale=2)
+            feat = F.pixel_unshuffle(x, downscale_factor=2)
         elif self.scale == 1:
-            feat = pixel_unshuffle(x, scale=4)
+            feat = F.pixel_unshuffle(x, downscale_factor=4)
         else:
             feat = x
         feat = self.conv_first(feat)
