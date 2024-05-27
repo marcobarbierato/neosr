@@ -145,3 +145,5 @@ class eqrsrgan(nn.Module):
             feat, scale_factor=2, mode='nearest')))
         out = self.conv_last(self.lrelu(self.conv_hr(feat)))
         return out
+
+### need to change everything, to lower computational costs.
