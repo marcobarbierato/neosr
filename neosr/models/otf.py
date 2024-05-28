@@ -81,31 +81,59 @@ class otf(default):
             ori_h, ori_w = self.gt.size()[2:4]
 
             # ----------------------- The first degradation process ----------------------- #
-            # blur
-            out = filter2D(self.gt, self.kernel1)
-            # random resize
-            updown_type = random.choices(
-                ['up', 'down', 'keep'], self.opt['resize_prob'])[0]
-            if updown_type == 'up':
-                scale = rng.uniform(1, self.opt['resize_range'][1])
-            elif updown_type == 'down':
-                scale = rng.uniform(self.opt['resize_range'][0], 1)
+            if rng.uniform() < self.opt.get('blur_first_prob', 1):
+
+                # blur
+                out = filter2D(self.gt, self.kernel1)
+                # random resize
+                updown_type = random.choices(
+                    ['up', 'down', 'keep'], self.opt['resize_prob'])[0]
+                if updown_type == 'up':
+                    scale = rng.uniform(1, self.opt['resize_range'][1])
+                elif updown_type == 'down':
+                    scale = rng.uniform(self.opt['resize_range'][0], 1)
+                else:
+                    scale = 1
+                mode = random.choice(['area', 'bilinear', 'bicubic'])
+                out = F.interpolate(out, scale_factor=scale, mode=mode)
+                # add noise
+                gray_noise_prob = self.opt['gray_noise_prob']
+                if rng.uniform() < self.opt['gaussian_noise_prob']:
+                    out = random_add_gaussian_noise_pt(
+                        out, sigma_range=self.opt['noise_range'], clip=True, rounds=False, gray_prob=gray_noise_prob)
+                else:
+                    out = random_add_poisson_noise_pt(
+                        out,
+                        scale_range=self.opt['poisson_scale_range'],
+                        gray_prob=gray_noise_prob,
+                        clip=True,
+                        rounds=False)
             else:
-                scale = 1
-            mode = random.choice(['area', 'bilinear', 'bicubic'])
-            out = F.interpolate(out, scale_factor=scale, mode=mode)
-            # add noise
-            gray_noise_prob = self.opt['gray_noise_prob']
-            if rng.uniform() < self.opt['gaussian_noise_prob']:
-                out = random_add_gaussian_noise_pt(
-                    out, sigma_range=self.opt['noise_range'], clip=True, rounds=False, gray_prob=gray_noise_prob)
-            else:
-                out = random_add_poisson_noise_pt(
-                    out,
-                    scale_range=self.opt['poisson_scale_range'],
-                    gray_prob=gray_noise_prob,
-                    clip=True,
-                    rounds=False)
+                updown_type = random.choices(
+                    ['up', 'down', 'keep'], self.opt['resize_prob'])[0]
+                if updown_type == 'up':
+                    scale = rng.uniform(1, self.opt['resize_range'][1])
+                elif updown_type == 'down':
+                    scale = rng.uniform(self.opt['resize_range'][0], 1)
+                else:
+                    scale = 1
+                mode = random.choice(['area', 'bilinear', 'bicubic'])
+                out = F.interpolate(self.gt, scale_factor=scale, mode=mode)
+                # add noise
+                gray_noise_prob = self.opt['gray_noise_prob']
+                if rng.uniform() < self.opt['gaussian_noise_prob']:
+                    out = random_add_gaussian_noise_pt(
+                        out, sigma_range=self.opt['noise_range'], clip=True, rounds=False, gray_prob=gray_noise_prob)
+                else:
+                    out = random_add_poisson_noise_pt(
+                        out,
+                        scale_range=self.opt['poisson_scale_range'],
+                        gray_prob=gray_noise_prob,
+                        clip=True,
+                        rounds=False)
+
+                out = filter2D(out, self.kernel1)
+
             # JPEG compression
             if self.opt.get('jpeg_compress', True):
                 jpeg_p = out.new_zeros(out.size(0)).uniform_(
