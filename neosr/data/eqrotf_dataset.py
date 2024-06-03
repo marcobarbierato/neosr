@@ -180,7 +180,7 @@ class eqrotf(data.Dataset):
         kernel_size = random.choice(self.kernel_range)
         #kernel2 = random_bivariate_Gaussian(kernel_size, self.blur_sigmax, sigma_rangey, rotation_range=rotation_range, noise_range=None, isotropic=False)
 
-        kernel = random_mixed_kernels(
+        kernel2 = random_mixed_kernels(
                 self.kernel_list,
                 self.kernel_prob,
                 kernel_size,
