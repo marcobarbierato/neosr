@@ -307,6 +307,8 @@ class default():
             # lq match
             self.lq_interp = F.interpolate(self.lq, scale_factor=self.scale, mode='bicubic')
 
+            if self.gt.shape[1]==4:
+                self.gt = self.gt[:, :-1, :, :]
             # wavelet guided loss
             if self.wavelet_guided == "on" or self.wavelet_guided == "disc":
                 (
@@ -712,7 +714,7 @@ class default():
             # check for dataset option save_tb, to save images on tb_logger    
             save_tb = dataloader.dataset.opt.get('save_tb', False)
             if save_tb:
-                tb_logger.add_image(f'{img_name}/{current_iter}', sr_img, global_step=current_iter, dataformats='HWC')
+                tb_logger.add_image(f'{current_iter}/{img_name}', sr_img, global_step=current_iter, dataformats='HWC')
                 
             if with_metrics:
                 # calculate metrics
