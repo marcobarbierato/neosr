@@ -27,6 +27,10 @@ def img2tensor(imgs, bgr2rgb=True, float32=True, color=True):
                 if img.dtype == 'float64':
                     img = img.astype('float32')
                 img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            elif img.shape[2] == 4 and bgr2rgb:
+                if img.dtype == 'float64':
+                    img = img.astype('float32')
+                img = cv2.cvtColor(img, cv2.COLOR_BGR2RGBA)
             img = torch.from_numpy(img.transpose(2, 0, 1))
         else:
             if img.shape[2] == 3 and bgr2rgb:
