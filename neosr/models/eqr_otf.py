@@ -77,8 +77,8 @@ class eqrotf(default):
             self.kernel2 = data['kernel2'].to(device=self.device, non_blocking=True)
             self.sinc_kernel = data['sinc_kernel'].to(device=self.device, non_blocking=True)
 
-            dist = self.gt[:, -1, :, :][:, None, :, :].clone()
-            self.gt = self.gt[:, :-1, :, :].clone()
+            dist = self.gt[:, -1, :, :][:, None, :, :] #.clone()
+            self.gt = self.gt[:, :-1, :, :] #.clone()
             ori_h, ori_w = self.gt.size()[2:4]
 
             # ----------------------- The first degradation process ----------------------- #

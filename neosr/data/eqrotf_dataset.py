@@ -74,6 +74,8 @@ class eqrotf(data.Dataset):
         self.betap_range2 = opt['betap_range2']
         self.sinc_prob2 = opt['sinc_prob2']
 
+        self.sigmax_start = opt['sigmax_start']
+        self.sigmax_end = opt['sigmax_end']
         # a final sinc filter
         self.final_sinc_prob = opt['final_sinc_prob']
 
@@ -153,11 +155,12 @@ class eqrotf(data.Dataset):
         angle0 = np.arccos( img_gt[0, 0, 3] ) / (np.pi/2) # in [0,1]
         angle1 = np.arccos( img_gt[-1, 0, 3] ) / (np.pi/2)
         angle_mid = np.abs(angle0-angle1)/2
-        
-        sigma = 2*(1-angle_mid)+10*angle_mid # this constants can be changed
-        sigma_var = 1+ 2 * np.sqrt(angle_mid)
+        #print(angle0, angle1)
+        sigma = self.sigmax_start*(1-angle_mid)+self.sigmax_end*angle_mid # this constants can be changed in the options
+        sigma_var = 1 #self.sigmax_start * ( 1+np.sqrt(angle_mid) )
         sigma_rangey= [sigma-sigma_var, sigma+sigma_var] # this interval is always positive
         rotation_range = [-1e-3, 1e-3]
+        #print(sigma, sigma_var)
         # ------------------------ Generate kernels (used in the first degradation) ------------------------ #
         kernel_size = random.choice(self.kernel_range)
 
@@ -172,13 +175,14 @@ class eqrotf(data.Dataset):
                 self.betag_range,
                 self.betap_range,
                 noise_range=None)
+    
         # pad kernel
         pad_size = (21 - kernel_size) // 2
         kernel = np.pad(kernel, ((pad_size, pad_size), (pad_size, pad_size)))
 
         # ------------------------ Generate kernels (used in the second degradation) ------------------------ #
         kernel_size = random.choice(self.kernel_range)
-        #kernel2 = random_bivariate_Gaussian(kernel_size, self.blur_sigmax, sigma_rangey, rotation_range=rotation_range, noise_range=None, isotropic=False)
+        #kernel2 = random_bivariate_Gaussian(kernel_size, self.blur_sigma, sigma_rangey, rotation_range=rotation_range, noise_range=None, isotropic=False)
 
         kernel2 = random_mixed_kernels(
                 self.kernel_list,
