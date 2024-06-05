@@ -119,6 +119,7 @@ class eqrotf(default):
             # clamp and round
             self.lq = torch.clamp((out * 255.0).round(), 0, 255) / 255.
             self.gt = torch.cat((self.gt, dist), dim=1)
+            self.lq = torch.cat((self.lq, dist), dim=1)
             # random crop
             gt_size = self.opt['gt_size']
             (self.gt), self.lq = paired_random_crop([self.gt], self.lq, gt_size,
@@ -136,6 +137,7 @@ class eqrotf(default):
             # apply augmentation
             if self.aug is not None:
                 self.gt, self.lq = apply_augment(self.gt, self.lq, scale=self.scale, augs=self.aug, prob=self.aug_prob)
+                self.gt = self.gt[:, :-1, :, :] # takes out distortion in gt image
         else:
             # for paired training or validation
             self.lq = data['lq'].to(device=self.device, memory_format=torch.channels_last, non_blocking=True)

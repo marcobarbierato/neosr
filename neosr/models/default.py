@@ -307,8 +307,6 @@ class default():
             # lq match
             self.lq_interp = F.interpolate(self.lq, scale_factor=self.scale, mode='bicubic')
 
-            if self.gt.shape[1]==4:
-                self.gt = self.gt[:, :-1, :, :]
             # wavelet guided loss
             if self.wavelet_guided == "on" or self.wavelet_guided == "disc":
                 (
