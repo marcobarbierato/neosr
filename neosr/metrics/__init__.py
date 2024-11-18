@@ -3,7 +3,7 @@ from copy import deepcopy
 from neosr.utils.registry import METRIC_REGISTRY
 from .calculate import calculate_psnr, calculate_ssim, calculate_dists
 
-__all__ = ['calculate_psnr', 'calculate_ssim', 'calculate_dists']
+__all__ = ['calculate_psnr', 'calculate_ssim', 'calculate_dists', 'calculate_ilniqe']
 
 
 def calculate_metric(data, opt):

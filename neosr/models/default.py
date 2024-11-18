@@ -4,11 +4,14 @@ from collections import OrderedDict
 from copy import deepcopy
 from os import path as osp
 
+import numpy as np
+
 import torch
 import pytorch_optimizer
 from tqdm import tqdm
 from torch.nn.parallel import DataParallel, DistributedDataParallel
 from torch.nn import functional as F
+from torch.optim.swa_utils import AveragedModel, get_ema_multi_avg_fn
 
 from neosr.archs import build_network
 from neosr.losses import build_loss
@@ -36,6 +39,7 @@ class default():
         self.loss_g_sum = 0
         self.loss_d_real_sum = 0
         self.loss_d_fake_sum = 0
+        self.loss_sum_dict = OrderedDict()
 
         # define network net_g
         self.net_g = build_network(opt['network_g'])
@@ -73,6 +77,16 @@ class default():
         # options var
         train_opt = self.opt['train']
 
+        self.ema = self.opt["train"].get("ema", -1)
+        if self.ema > 0:
+            self.net_g_ema = AveragedModel(
+                self.net_g,
+                multi_avg_fn=get_ema_multi_avg_fn(self.ema),
+                device=self.device,
+            )
+            logger = get_root_logger()
+            logger.info("Using exponential-moving average.")
+        
         # set nets to training mode
         self.net_g.train()
         if self.net_d is not None:
@@ -460,6 +474,7 @@ class default():
             # add total discriminator loss for tensorboard tracking
             loss_dict['l_d_total'] = (l_d_real + l_d_fake) / 2
             
+        
 
         # update gradscaler and zero grads
         if (self.n_accumulated) % self.accum_iters == 0:
@@ -478,20 +493,26 @@ class default():
             raise ValueError(msg)
             
         #avg losses
+        for k, v in loss_dict.items(): # is this too slow?
+            if k not in self.loss_sum_dict:
+                self.loss_sum_dict[k] = 0
+            self.loss_sum_dict[k] += v
+
         print_freq = self.opt['logger']['print_freq']
         if current_iter % print_freq == 0:
-            l_d_loss = torch.tensor( ((self.loss_d_fake_sum + self.loss_d_real_sum) / 2 ) / print_freq )
-            loss_dict['l_d_tot_mean'] = l_d_loss
-            loss_dict['l_g_tot_mean'] = torch.tensor(self.loss_g_sum / print_freq)
-            self.loss_g_sum = 0
-            loss_dict['l_d_fake_mean'] = torch.tensor(self.loss_d_fake_sum / print_freq)
-            self.loss_d_fake_sum = 0
-            loss_dict['l_d_real_mean'] = torch.tensor(self.loss_d_real_sum / print_freq)
-            self.loss_d_real_sum = 0
+
+            for k, v in self.loss_sum_dict.items():
+                key = k + '_mean'
+                loss_dict[key] = torch.tensor(v/print_freq)
+                self.loss_sum_dict[k]=0
+                loss_dict.pop(k)
             
             
             
         self.log_dict = self.reduce_loss_dict(loss_dict)
+
+        if self.ema > 0:
+                self.net_g_ema.update_parameters(self.net_g)
 
 
     def update_learning_rate(self, current_iter, warmup_iter=-1):
@@ -520,32 +541,63 @@ class default():
 
     def test(self):
         self.tile = self.opt['val'].get('tile', -1)
+        self.window_size = self.opt['val'].get('window_size', -1)
+        self.scale = self.opt['scale']
         if self.tile == -1:
-            self.net_g.eval()
             with torch.inference_mode():
-                self.output = self.net_g(self.lq)
+                if self.ema > 0:
+                    self.net_g_ema.eval()
+                    self.output = self.net_g_ema(self.lq)
+                else:
+                    self.net_g.eval()
+                    self.output = self.net_g(self.lq)
             self.net_g.train()
+            
+            # self.net_g.eval()
+            # with torch.inference_mode():
+            #     self.output = self.net_g(self.lq)
+            # self.net_g.train()
 
         # test by partitioning
         else:
+            # print(self.lq.size())
+            # if self.window_size>0:
+            #     _, _, h_old, w_old = self.lq.size()
+            #     h_pad = (h_old // self.window_size + 1) * self.window_size - h_old
+            #     w_pad = (w_old // self.window_size + 1) * self.window_size - w_old
+            #     self.lq = torch.cat([self.lq, torch.flip(self.lq, [2])], 2)[:, :, :h_old + h_pad, :]
+            #     self.lq = torch.cat([self.lq, torch.flip(self.lq, [3])], 3)[:, :, :, :w_old + w_pad]
+            
             _, C, h, w = self.lq.size()
+            C = self.opt['network_g'].get('num_out_ch', C)
+            C = self.opt['network_g'].get('out_chans', C)
+
+            
+            
             split_token_h = h // self.tile + 1  # number of horizontal cut sections
             split_token_w = w // self.tile + 1  # number of vertical cut sections
 
             patch_size_tmp_h = split_token_h
             patch_size_tmp_w = split_token_w
             
-            # padding
             mod_pad_h, mod_pad_w = 0, 0
-            if h % patch_size_tmp_h != 0:
-                mod_pad_h = patch_size_tmp_h - h % patch_size_tmp_h
-            if w % patch_size_tmp_w != 0:
-                mod_pad_w = patch_size_tmp_w - w % patch_size_tmp_w
+            if h % self.tile != 0:
+                mod_pad_h = self.tile - h % self.tile
+            if w % self.tile != 0:
+                mod_pad_w = self.tile - w % self.tile
+                
+            # padding
+            # mod_pad_h, mod_pad_w = 0, 0
+            # if h % patch_size_tmp_h != 0:
+            #     mod_pad_h = patch_size_tmp_h - h % patch_size_tmp_h
+            # if w % patch_size_tmp_w != 0:
+            #     mod_pad_w = patch_size_tmp_w - w % patch_size_tmp_w
 
             img = self.lq
-            img = torch.cat([img, torch.flip(img, [2])], 2)[:, :, :h+mod_pad_h, :]
-            img = torch.cat([img, torch.flip(img, [3])], 3)[:, :, :, :w+mod_pad_w]
-
+            img = F.pad(img, (0, mod_pad_w, 0, mod_pad_h))
+            # img = torch.cat([img, torch.flip(img, [2])], 2)[:, :, :h+mod_pad_h, :]
+            # img = torch.cat([img, torch.flip(img, [3])], 3)[:, :, :, :w+mod_pad_w]
+            
             _, _, H, W = img.size()
             split_h = H // split_token_h  # height of each partition
             split_w = W // split_token_w  # width of each partition
@@ -585,7 +637,10 @@ class default():
             with torch.inference_mode():
                 outputs = []
                 for chop in img_chops:
-                    out = self.net_g(chop)  # image processing of each partition
+                    if self.ema > 0:
+                        out = self.net_g_ema(chop)  # image processing of each partition
+                    else:
+                        out = self.net_g(chop)  # image processing of each partition
                     outputs.append(out)
                 _img = torch.zeros(1, C, H * self.scale, W * self.scale)
                 # merge
@@ -609,9 +664,9 @@ class default():
 
     @torch.no_grad()
     def feed_data(self, data):
-        self.lq = data['lq'].to(self.device, memory_format=torch.channels_last, non_blocking=True)
+        self.lq = data['lq'].to(self.device, non_blocking=True)
         if 'gt' in data:
-            self.gt = data['gt'].to(self.device, memory_format=torch.channels_last, non_blocking=True)
+            self.gt = data['gt'].to(self.device, non_blocking=True)
 
         # augmentation
         if self.is_train and self.aug is not None:
@@ -648,17 +703,25 @@ class default():
                 self.best_metric_results[dataset_name][metric]['iter'] = current_iter
 
     def nondist_validation(self, dataloader, current_iter, tb_logger, save_img):
-
+        
+        if self.opt.get('train') is None:
+            self.ema=-1
         # flag to not apply augmentation during val
         self.is_train = False
 
         dataset_name = dataloader.dataset.opt['name']
         
         dataset_type = dataloader.dataset.opt['type'] 
-        if dataset_type == 'single':
+        if dataset_type != 'paired' and dataset_type != 'pcpaired':
             with_metrics = False
         else:
             with_metrics = self.opt['val'].get('metrics') is not None
+
+        
+        if dataset_type == 'pancamsingle':
+            if self.opt['val'].get('metrics') is not None:
+                if self.opt['val'].get('metrics').get('ilniqe') is not None:
+                    with_metrics = True
             
         use_pbar = self.opt['val'].get('pbar', False)
 
@@ -683,6 +746,7 @@ class default():
 
             visuals = self.get_current_visuals()
             sr_img = tensor2img([visuals['result']])
+            #lr_img = tensor2img([visuals['lq']])
             metric_data['img'] = sr_img
             if 'gt' in visuals:
                 gt_img = tensor2img([visuals['gt']])
@@ -712,7 +776,16 @@ class default():
             # check for dataset option save_tb, to save images on tb_logger    
             save_tb = dataloader.dataset.opt.get('save_tb', False)
             if save_tb:
-                tb_logger.add_image(f'{img_name}/{current_iter}', sr_img, global_step=current_iter, dataformats='HWC')
+                if dataloader.dataset.opt.get('color', None) == 'y':
+                    dataformat= 'HW'
+                else:
+                    dataformat='HWC'
+                    sr_img=sr_img[:, :, ::-1]
+                tb_logger.add_image(f'{img_name}/{current_iter}', sr_img , global_step=current_iter, dataformats=dataformat)
+
+                #tb_logger.add_image(f'comp/{img_name}/{current_iter}', np.concatenate((sr_img, lr_img), axis=1), global_step=current_iter, dataformats=dataformat)
+
+                
                 
             if with_metrics:
                 # calculate metrics
@@ -858,11 +931,14 @@ class default():
         for net_, param_key_ in zip(net, param_key, strict=True):
             net_ = self.get_bare_model(net_)
             state_dict = net_.state_dict()
+            new_state_dict = OrderedDict()
             for key, param in state_dict.items():
-                if key.startswith('module.'):  # remove unnecessary 'module.'
+                if key.startswith("module."):  # remove unnecessary 'module.'
                     key = key[7:]
-                state_dict[key] = param.cpu()
-            save_dict[param_key_] = state_dict
+                if key.startswith("n_averaged"):  # skip n_averaged from EMA
+                    continue
+                new_state_dict[key] = param.cpu()
+            save_dict[param_key_] = new_state_dict
 
         # avoid occasional writing errors
         retry = 3
@@ -884,7 +960,12 @@ class default():
 
     def save(self, epoch, current_iter):
         """Save networks and training state."""
-        self.save_network(self.net_g, 'net_g', current_iter)
+
+        if self.ema > 0:
+            self.save_network(self.net_g_ema, "net_g", current_iter)
+        else:
+            self.save_network(self.net_g, "net_g", current_iter)
+        #self.save_network(self.net_g, 'net_g', current_iter)
 
         if self.net_d is not None:
             self.save_network(self.net_d, 'net_d', current_iter)

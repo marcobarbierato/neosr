@@ -4,6 +4,7 @@ import torch
 from torch.nn import functional as F
 
 from neosr.models.default import default
+from neosr.models.otf import otf
 from neosr.data.degradations import random_add_gaussian_noise_pt, random_add_poisson_noise_pt
 from neosr.data.transforms import paired_random_crop
 from neosr.utils import DiffJPEG
@@ -16,55 +17,12 @@ rng = rng()
 
 
 @MODEL_REGISTRY.register()
-class otf(default):
+class pancamotf(otf):
     """On The Fly degradations, based on RealESRGAN pipeline."""
 
     def __init__(self, opt):
-        super(otf, self).__init__(opt)
-        # simulate JPEG compression artifacts
-        self.jpeger = DiffJPEG(differentiable=False).cuda()
-        self.queue_size = opt.get('queue_size', 180)
-        self.gt_size = opt['gt_size']
-        self.device = torch.device('cuda')
-
-    @torch.no_grad()
-    def _dequeue_and_enqueue(self):
-        """It is the training pair pool for increasing the diversity in a batch.
-
-        Batch processing limits the diversity of synthetic degradations in a batch. For example, samples in a
-        batch could not have different resize scaling factors. Therefore, we employ this training pair pool
-        to increase the degradation diversity in a batch.
-        """
-        # initialize
-        b, c, h, w = self.lq.size()
-        if not hasattr(self, 'queue_lr'):
-            assert self.queue_size % b == 0, f'queue size {self.queue_size} should be divisible by batch size {b}'
-            self.queue_lr = torch.zeros(self.queue_size, c, h, w, device=self.device).cuda()
-            _, c, h, w = self.gt.size()
-            self.queue_gt = torch.zeros(self.queue_size, c, h, w, device=self.device).cuda()
-            self.queue_ptr = 0
-        if self.queue_ptr == self.queue_size:  # the pool is full
-            # do dequeue and enqueue
-            # shuffle
-            idx = torch.randperm(self.queue_size, device=self.device)
-            self.queue_lr = self.queue_lr[idx]
-            self.queue_gt = self.queue_gt[idx]
-            # get first b samples
-            lq_dequeue = self.queue_lr[0:b, :, :, :].clone()
-            gt_dequeue = self.queue_gt[0:b, :, :, :].clone()
-            # update the queue
-            self.queue_lr[0:b, :, :, :] = self.lq.clone()
-            self.queue_gt[0:b, :, :, :] = self.gt.clone()
-
-            self.lq = lq_dequeue
-            self.gt = gt_dequeue
-        else:
-            # only do enqueue
-            self.queue_lr[self.queue_ptr:self.queue_ptr +
-                          b, :, :, :] = self.lq.clone()
-            self.queue_gt[self.queue_ptr:self.queue_ptr +
-                          b, :, :, :] = self.gt.clone()
-            self.queue_ptr = self.queue_ptr + b
+        self.gt_size = opt["gt_size"]
+        super().__init__(opt)
 
     @torch.no_grad()
     def feed_data(self, data):
@@ -77,15 +35,30 @@ class otf(default):
             self.kernel1 = data['kernel1'].to(device=self.device, non_blocking=True)
             self.kernel2 = data['kernel2'].to(device=self.device, non_blocking=True)
             self.sinc_kernel = data['sinc_kernel'].to(device=self.device, non_blocking=True)
-                
+            
+            if 'kernel1final' in data:
+                linear_blur=True
+                self.kernel1final = data['kernel1final'].to(device=self.device, non_blocking=True)
+            distortion = self.gt[:, -1, :, :][:, None, :, :] #.clone()
+            self.gt = self.gt[:, :-1, :, :] #.clone()
             ori_h, ori_w = self.gt.size()[2:4]
             
+
+
             # ----------------------- The first degradation process ----------------------- #
             
 
             # blur
+            
             out = filter2D(self.gt, self.kernel1)
             
+            # combines blurs
+            if linear_blur:
+                out2 = filter2D(self.gt, self.kernel1final)
+                lin = torch.arange(0, 1, 1/self.gt.shape[2]).view(self.gt.shape[2], -1).expand(self.gt.shape[2], self.gt.shape[3])
+                out = (1-lin)*out + lin*out2
+
+
             # random resize
             updown_type = random.choices(
                 ['up', 'down', 'keep'], self.opt['resize_prob'])[0]
@@ -111,14 +84,6 @@ class otf(default):
                     rounds=False)
 
             
-            # JPEG compression
-            #if self.opt.get('jpeg_compress', True):
-            #    jpeg_p = out.new_zeros(out.size(0)).uniform_(
-            #        *self.opt['jpeg_range'])
-            #    # clamp to [0, 1], otherwise JPEGer will result in unpleasant artifacts
-            #    out = torch.clamp(out, 0, 1)
-            #    out = self.jpeger(out, quality=jpeg_p)
-
             # ----------------------- The second degradation process ----------------------- #
             # blur
             if np.random.uniform() < self.opt.get('second_degrad_prob', 1):
@@ -149,41 +114,22 @@ class otf(default):
                         clip=True,
                         rounds=False)
 
-            # JPEG compression + the final sinc filter
-            # We also need to resize images to desired sizes. We group [resize back + sinc filter] together
-            # as one operation.
-            # We consider two orders:
-            #   1. [resize back + sinc filter] + JPEG compression
-            #   2. JPEG compression + [resize back + sinc filter]
-            # Empirically, we find other combinations (sinc + JPEG + Resize) will introduce twisted lines.
-            if True:
-                # resize back + the final sinc filter
-                mode = random.choice(['area', 'bilinear', 'bicubic'])
-                out = F.interpolate(out, size=(
-                    ori_h // self.opt['scale'], ori_w // self.opt['scale']), mode=mode)
-                out = filter2D(out, self.sinc_kernel)
-                # JPEG compression
-                #if self.opt.get('jpeg_compress', True):
-                #    jpeg_p = out.new_zeros(out.size(0)).uniform_(
-                #        *self.opt['jpeg_range2'])
-                #    out = torch.clamp(out, 0, 1)
-                #    out = self.jpeger(out, quality=jpeg_p)
-            else:
-                # JPEG compression
-                jpeg_p = out.new_zeros(out.size(0)).uniform_(
-                    *self.opt['jpeg_range2'])
-                out = torch.clamp(out, 0, 1)
-                out = self.jpeger(out, quality=jpeg_p)
-                # resize back + the final sinc filter
-                mode = random.choice(['area', 'bilinear', 'bicubic'])
-                out = F.interpolate(out, size=(
-                    ori_h // self.opt['scale'], ori_w // self.opt['scale']), mode=mode)
-                out = filter2D(out, self.sinc_kernel)
             
+            
+            # resize back + the final sinc filter
+            mode = random.choice(['area', 'bilinear', 'bicubic'])
+            out = F.interpolate(out, size=(
+                ori_h // self.opt['scale'], ori_w // self.opt['scale']), mode=mode)
+            out = filter2D(out, self.sinc_kernel)
             
             # clamp and round
             self.lq = torch.clamp((out * 255.0).round(), 0, 255) / 255.
 
+            #combine distortions for randomcrop+aug
+            distortion_lq = F.interpolate(distortion, scale_factor=1/self.opt['scale'], mode='bilinear')
+            self.lq = torch.cat((self.lq, distortion_lq), dim=1)
+            self.gt = torch.cat((self.gt, torch.zeros_like(distortion)), dim=1)
+            
             # random crop
             gt_size = self.opt['gt_size']
             (self.gt), self.lq = paired_random_crop([self.gt], self.lq, gt_size,
@@ -201,15 +147,12 @@ class otf(default):
             # apply augmentation
             if self.aug is not None:
                 self.gt, self.lq = apply_augment(self.gt, self.lq, scale=self.scale, augs=self.aug, prob=self.aug_prob)
+            self.gt = self.gt[:, :-1, :, :] # drop distortion from ground truth
+                
+                
         else:
             # for paired training or validation
             self.lq = data['lq'].to(device=self.device, memory_format=torch.channels_last, non_blocking=True)
             if 'gt' in data:
                 self.gt = data['gt'].to(device=self.device, memory_format=torch.channels_last, non_blocking=True)
-
-    def nondist_validation(self, dataloader, current_iter, tb_logger, save_img):
-        # do not use the synthetic process during validation
-        self.is_train = False
-        super(otf, self).nondist_validation(
-            dataloader, current_iter, tb_logger, save_img)
-        self.is_train = True
+            

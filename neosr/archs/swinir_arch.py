@@ -81,7 +81,7 @@ class WindowAttention(nn.Module):
         proj_drop (float, optional): Dropout ratio of output. Default: 0.0
     """
 
-    def __init__(self, dim, window_size, num_heads, flash_attn, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0.):
+    def __init__(self, dim, window_size, num_heads, flash_attn, qkv_bias=True, qk_scale=None, attn_drop=0., proj_drop=0., channels=3):
 
         super().__init__()
         self.dim = dim
@@ -89,7 +89,7 @@ class WindowAttention(nn.Module):
         self.num_heads = num_heads
         head_dim = dim // num_heads
         self.scale = qk_scale or head_dim**-0.5
-
+        self.channels=channels
         # define a parameter table of relative position bias
         self.relative_position_bias_table = nn.Parameter(
             torch.zeros((2 * window_size[0] - 1) * (2 * window_size[1] - 1), num_heads))  # 2*Wh-1 * 2*Ww-1, nH
@@ -129,7 +129,8 @@ class WindowAttention(nn.Module):
             mask: (0/-inf) mask with shape of (num_windows, Wh*Ww, Wh*Ww) or None
         """
         b_, n, c = x.shape
-        qkv = self.qkv(x).reshape(b_, n, 3, self.num_heads, c //
+        qkv = self.qkv(x)
+        qkv = qkv.reshape(b_, n, 3, self.num_heads, c //
                                   self.num_heads).permute(2, 0, 3, 1, 4)
         # make torchscript happy (cannot use tensor as tuple)
         q, k, v = qkv[0], qkv[1], qkv[2]
@@ -224,7 +225,8 @@ class SwinTransformerBlock(nn.Module):
                  attn_drop=0.,
                  drop_path=0.,
                  act_layer=nn.GELU,
-                 norm_layer=nn.LayerNorm):
+                 norm_layer=nn.LayerNorm,
+                 channels=3):
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
@@ -232,6 +234,7 @@ class SwinTransformerBlock(nn.Module):
         self.window_size = window_size
         self.shift_size = shift_size
         self.mlp_ratio = mlp_ratio
+        self.channels = channels
         if min(self.input_resolution) <= self.window_size:
             # if window size is larger than input resolution, we don't partition windows
             self.shift_size = 0
@@ -247,7 +250,8 @@ class SwinTransformerBlock(nn.Module):
             qkv_bias=qkv_bias,
             qk_scale=qk_scale,
             attn_drop=attn_drop,
-            proj_drop=drop)
+            proj_drop=drop,
+            channels=self.channels)
 
         self.drop_path = DropPath(
             drop_path) if drop_path > 0. else nn.Identity()
@@ -440,14 +444,15 @@ class BasicLayer(nn.Module):
                  drop_path=0.,
                  norm_layer=nn.LayerNorm,
                  downsample=None,
-                 use_checkpoint=False):
+                 use_checkpoint=False,
+                 channels=3):
 
         super().__init__()
         self.dim = dim
         self.input_resolution = input_resolution
         self.depth = depth
         self.use_checkpoint = use_checkpoint
-
+        self.channels=channels
         # build blocks
         self.blocks = nn.ModuleList([
             SwinTransformerBlock(
@@ -464,7 +469,8 @@ class BasicLayer(nn.Module):
                 attn_drop=attn_drop,
                 drop_path=drop_path[i] if isinstance(
                     drop_path, list) else drop_path,
-                norm_layer=norm_layer) for i in range(depth)
+                norm_layer=norm_layer,
+                channels=self.channels) for i in range(depth)
         ])
 
         # patch merging layer
@@ -537,12 +543,13 @@ class RSTB(nn.Module):
                  use_checkpoint=False,
                  img_size=224,
                  patch_size=4,
-                 resi_connection='1conv'):
+                 resi_connection='1conv',
+                 channels=3):
         super(RSTB, self).__init__()
 
         self.dim = dim
         self.input_resolution = input_resolution
-
+        self.channels=channels
         self.residual_group = BasicLayer(
             dim=dim,
             input_resolution=input_resolution,
@@ -558,7 +565,8 @@ class RSTB(nn.Module):
             drop_path=drop_path,
             norm_layer=norm_layer,
             downsample=downsample,
-            use_checkpoint=use_checkpoint)
+            use_checkpoint=use_checkpoint,
+            channels=self.channels)
 
         if resi_connection == '1conv':
             self.conv = nn.Conv2d(dim, dim, 3, 1, 1)
@@ -716,7 +724,7 @@ class UpsampleOneStep(nn.Sequential):
         flops = h * w * self.num_feat * 3 * 9
         return flops
 
-
+@ARCH_REGISTRY.register()
 class swinir(nn.Module):
     r""" SwinIR
         A PyTorch impl of : `SwinIR: Image Restoration Using Swin Transformer`, based on Swin Transformer.
@@ -749,6 +757,7 @@ class swinir(nn.Module):
                  img_size=32,
                  patch_size=1,
                  in_chans=3,
+                 out_chans=3,
                  embed_dim=60,
                  depths=(6, 6, 6, 6),
                  num_heads=(6, 6, 6, 6),
@@ -771,7 +780,7 @@ class swinir(nn.Module):
                  **kwargs):
         super(swinir, self).__init__()
         num_in_ch = in_chans
-        num_out_ch = in_chans
+        num_out_ch = out_chans
         num_feat = 64
         self.img_range = img_range
         if in_chans == 3:
@@ -847,7 +856,8 @@ class swinir(nn.Module):
                 use_checkpoint=use_checkpoint,
                 img_size=img_size,
                 patch_size=patch_size,
-                resi_connection=resi_connection)
+                resi_connection=resi_connection,
+                channels=num_in_ch)
             self.layers.append(layer)
         self.norm = norm_layer(self.num_features)
 

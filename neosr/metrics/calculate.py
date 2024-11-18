@@ -1,6 +1,7 @@
 import cv2
 import numpy as np
 import torch
+import pyiqa
 
 from neosr.metrics.metric_util import reorder_image, to_y_channel
 from neosr.losses.dists_loss import dists
@@ -151,3 +152,23 @@ def calculate_dists(img, img2, **kwargs):
     loss = loss.forward(img, img2)
 
     return loss
+
+@METRIC_REGISTRY.register()
+def calculate_ilniqe(img, **kwargs):
+
+    # to 3 channel
+    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    # to tensor
+    img = img2tensor(img, bgr2rgb=False, float32=True, color=True)
+    # normalize to [0, 1]
+    img = img/255
+    # add dim
+    img = img.unsqueeze_(0)
+    # to cuda
+    device = torch.device("cuda")
+    img = img.to(device)
+    iqa_metric = pyiqa.create_metric('ilniqe', device=device)
+    
+    loss = iqa_metric(img)
+
+    return loss.cpu().numpy().mean()

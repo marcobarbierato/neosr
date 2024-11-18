@@ -26,6 +26,7 @@ from neosr.utils import (
 )
 from neosr.utils.options import copy_opt_file, parse_options
 
+from torchprofile import profile_macs
 
 def init_tb_loggers(opt):
     # initialize wandb logger before tensorboard logger to allow proper sync
@@ -180,6 +181,17 @@ def train_pipeline(root_path):
 
     # create model
     model = build_model(opt)
+    
+    input_size= opt.get('input_size')
+    if input_size is not None:
+        inputs = torch.randn(1, input_size['in_channels'], input_size['size'], input_size['size'])
+        macs = profile_macs(model.net_g, inputs)
+        logger.info(f'Generator MACs: {macs:,d}')
+        if model.net_d is not None:
+            inputs = torch.randn(1, input_size['out_channels'], input_size['size'], input_size['size'])
+            macs = profile_macs(model.net_d, inputs)
+            logger.info(f'Discriminator MACs: {macs:,d}')
+    
 
     if resume_state:  # resume training
         model.resume_training(resume_state)  # handle optimizers and schedulers
@@ -298,10 +310,14 @@ def train_pipeline(root_path):
             model.validation(
                 val_loader, int(current_iter / accumulate), tb_logger, opt["val"]["save_img"]
             )
+    
     if tb_logger:
+        logger.info('Closing Logger')
         tb_logger.close()
+        logger.info('Logger Closed')
 
 
 if __name__ == "__main__":
     root_path = osp.abspath(osp.join(__file__, osp.pardir))
+    torch.multiprocessing.set_start_method('spawn')
     train_pipeline(root_path)
