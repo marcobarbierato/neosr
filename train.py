@@ -231,6 +231,9 @@ def train_pipeline(root_path):
     iter_timer = AvgTimer()
     start_time = time.time()
 
+    # logging file with only losses
+    log_path = osp.join(opt["root_path"], "experiments", opt["name"])
+
     try:
         for epoch in range(start_epoch, total_epochs + 1):
             train_sampler.set_epoch(epoch)
@@ -269,8 +272,20 @@ def train_pipeline(root_path):
                         "time": iter_timer.get_avg_time(),
                         #"data_time": data_timer.get_avg_time(),
                     })
+                    iter_time = log_vars['time']
+
                     log_vars.update(model.get_current_log())
                     msg_logger(log_vars)
+                    
+                    # iters per second
+                    iter_time = iter_time * 100
+                    iter_time = 100 / iter_time
+                    accumulate = opt["datasets"]["train"].get("accumulate", 1)
+                    iter_time = iter_time / accumulate
+                    if iter_time < 0.5 and "debug" not in opt["name"]:
+                        logger.info("Interrupted, saving latest models.")
+                        model.save(epoch, int(current_iter_log))
+                        sys.exit(0)
 
                 # save models and training states
                 if current_iter_log % save_checkpoint_freq == 0:
@@ -320,4 +335,5 @@ def train_pipeline(root_path):
 if __name__ == "__main__":
     root_path = osp.abspath(osp.join(__file__, osp.pardir))
     torch.multiprocessing.set_start_method('spawn')
+    #torch.multiprocessing.Queue(200)
     train_pipeline(root_path)

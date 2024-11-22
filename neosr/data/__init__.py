@@ -70,13 +70,14 @@ def build_dataloader(dataset, dataset_opt, num_gpu=1, dist=False, sampler=None, 
             multiplier = 1 if num_gpu == 0 else num_gpu
             batch_size = dataset_opt['batch_size'] * multiplier
             num_workers = num_workers * multiplier
+        prefetch_factor = None if num_workers==0 else 2
         dataloader_args = dict(
             dataset=dataset,
             batch_size=batch_size,
             shuffle=False,
             num_workers=num_workers,
             sampler=sampler,
-            prefetch_factor=8,
+            prefetch_factor=prefetch_factor,
             drop_last=True)
         if sampler is None:
             dataloader_args['shuffle'] = True
@@ -91,7 +92,12 @@ def build_dataloader(dataset, dataset_opt, num_gpu=1, dist=False, sampler=None, 
             f"Wrong dataset phase: {phase}. Supported ones are 'train', 'val' and 'test'.")
 
     dataloader_args['pin_memory'] = dataset_opt.get('pin_memory', True)
-    dataloader_args['persistent_workers'] = dataset_opt.get('persistent_workers', True)
+    #print(dataset_opt)
+    if dataset_opt.get('num_worker_per_gpu', 'auto') == 'auto' or None:
+            num_workers = psutil.cpu_count(logical=False)
+    default_persistent = True if num_workers>0 else False
+    dataloader_args['persistent_workers'] = dataset_opt.get('persistent_workers', default_persistent)
+    
 
     return torch.utils.data.DataLoader(**dataloader_args)
 
