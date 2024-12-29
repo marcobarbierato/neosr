@@ -102,13 +102,13 @@ class otf(default):
             if rng.uniform() < self.opt['gaussian_noise_prob']:
                 out = random_add_gaussian_noise_pt(
                     out, sigma_range=self.opt['noise_range'], clip=True, rounds=False, gray_prob=gray_noise_prob)
-            else:
-                out = random_add_poisson_noise_pt(
-                    out,
-                    scale_range=self.opt['poisson_scale_range'],
-                    gray_prob=gray_noise_prob,
-                    clip=True,
-                    rounds=False)
+            # else:
+            #     out = random_add_poisson_noise_pt(
+            #         out,
+            #         scale_range=self.opt['poisson_scale_range'],
+            #         gray_prob=gray_noise_prob,
+            #         clip=True,
+            #         rounds=False)
 
             
             # JPEG compression
@@ -141,13 +141,13 @@ class otf(default):
                 if rng.uniform() < self.opt['gaussian_noise_prob2']:
                     out = random_add_gaussian_noise_pt(
                         out, sigma_range=self.opt['noise_range2'], clip=True, rounds=False, gray_prob=gray_noise_prob)
-                else:
-                    out = random_add_poisson_noise_pt(
-                        out,
-                        scale_range=self.opt['poisson_scale_range2'],
-                        gray_prob=gray_noise_prob,
-                        clip=True,
-                        rounds=False)
+                # else:
+                #     out = random_add_poisson_noise_pt(
+                #         out,
+                #         scale_range=self.opt['poisson_scale_range2'],
+                #         gray_prob=gray_noise_prob,
+                #         clip=True,
+                #         rounds=False)
 
             # JPEG compression + the final sinc filter
             # We also need to resize images to desired sizes. We group [resize back + sinc filter] together

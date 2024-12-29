@@ -202,7 +202,7 @@ def apply_augment(
     scale=1,
     augs=["none", "mixup", "cutmix", "resizemix", "cutblur"],
     prob=[0.1, 0.3, 0.2, 0.7, 0.8],
-    multi_prob=0.3,
+    multi_prob=0.3
 ):
     r"""Applies Augmentations.
 
@@ -227,9 +227,9 @@ def apply_augment(
         raise ValueError(msg)
 
     # match resolutions
-    modes = ["bilinear", "bicubic"]
-    if scale > 1:
-        img_lq = F.interpolate(img_lq, scale_factor=scale, mode=random.choice(modes))
+    # modes = ["bilinear", "bicubic"]
+    # if scale > 1:
+    #     img_lq = F.interpolate(img_lq, scale_factor=scale, mode=random.choice(modes))
 
     if rng.random() < multi_prob:
         num_augs = rng.integers(2, len(augs)) if len(augs) > 2 else len(augs)
@@ -264,7 +264,7 @@ def apply_augment(
             pass
 
     # back to original resolution
-    if scale > 1:
-        img_lq = F.interpolate(img_lq, scale_factor=1 / scale, mode="bicubic")
+    # if scale > 1:
+    #     img_lq = F.interpolate(img_lq, scale_factor=1 / scale, mode="bicubic")
 
     return img_gt, img_lq

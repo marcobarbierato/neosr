@@ -157,9 +157,10 @@ def calculate_dists(img, img2, **kwargs):
 def calculate_ilniqe(img, **kwargs):
 
     # to 3 channel
-    img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
+    if(len(img.shape)<3):
+        img = cv2.cvtColor(img, cv2.COLOR_GRAY2BGR)
     # to tensor
-    img = img2tensor(img, bgr2rgb=False, float32=True, color=True)
+    img = img2tensor(img, bgr2rgb=True, float32=True, color=True)
     # normalize to [0, 1]
     img = img/255
     # add dim

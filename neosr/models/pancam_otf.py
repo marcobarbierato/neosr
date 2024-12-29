@@ -117,23 +117,23 @@ class pancamotf(otf):
             
             
             # resize back + the final sinc filter
-            mode = random.choice(['area', 'bilinear', 'bicubic'])
-            out = F.interpolate(out, size=(
-                ori_h // self.opt['scale'], ori_w // self.opt['scale']), mode=mode)
-            out = filter2D(out, self.sinc_kernel)
+            #mode = random.choice(['area', 'bilinear', 'bicubic'])
+            #out = F.interpolate(out, size=(ori_h // self.opt['scale'], ori_w // self.opt['scale']), mode=mode)
+            # out = filter2D(out, self.sinc_kernel)
             
             # clamp and round
             self.lq = torch.clamp((out * 255.0).round(), 0, 255) / 255.
 
             #combine distortions for randomcrop+aug
-            distortion_lq = F.interpolate(distortion, scale_factor=1/self.opt['scale'], mode='bilinear')
+            #distortion_lq = F.interpolate(distortion, scale_factor=1/self.opt['scale'], mode='bilinear')
+            distortion_lq = distortion
             self.lq = torch.cat((self.lq, distortion_lq), dim=1)
             self.gt = torch.cat((self.gt, torch.zeros_like(distortion)), dim=1)
             
             # random crop
             gt_size = self.opt['gt_size']
-            (self.gt), self.lq = paired_random_crop([self.gt], self.lq, gt_size,
-                                                    self.opt['scale'])
+            #(self.gt), self.lq = paired_random_crop([self.gt], self.lq, gt_size, self.opt['scale'])
+            (self.gt), self.lq = paired_random_crop([self.gt], self.lq, gt_size, 1)
 
             # training pair pool
             self._dequeue_and_enqueue()
@@ -147,6 +147,8 @@ class pancamotf(otf):
             # apply augmentation
             if self.aug is not None:
                 self.gt, self.lq = apply_augment(self.gt, self.lq, scale=self.scale, augs=self.aug, prob=self.aug_prob)
+
+            self.lq = F.interpolate(self.lq, scale_factor=1/self.opt['scale'], mode=mode)
             self.gt = self.gt[:, :-1, :, :] # drop distortion from ground truth
                 
                 
