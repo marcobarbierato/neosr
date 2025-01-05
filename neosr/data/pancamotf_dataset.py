@@ -163,7 +163,7 @@ class pancamotf(data.Dataset):
         # generate random angle, scale degradations
         
         start_angle_n = np.random.uniform(0,1)
-        start_angle = (1-start_angle_n)*202+start_angle_n*(1350-crop_pad_size)
+        start_angle = (1-start_angle_n)*202+start_angle_n*(1350-crop_pad_size//self.scale)
 
         # for spatially variant blur
         
@@ -180,7 +180,7 @@ class pancamotf(data.Dataset):
             blur_sigma2final = dfactor2*self.blur_sigma2[1]
             blur_sigmay2final = dfactor2*self.blur_sigmay2[1]
             
-        distortion = np.fromfunction(lambda i, j: (i+start_angle)/(1350-202), [crop_pad_size//self.scale,crop_pad_size//self.scale])
+        distortion = np.fromfunction(lambda i, j: (i+start_angle-202)/(1350-202), [crop_pad_size//self.scale,crop_pad_size//self.scale])
         distortion = cv2.resize(distortion, (crop_pad_size, crop_pad_size))
         dfactor = float(1+ start_angle_n)
         
