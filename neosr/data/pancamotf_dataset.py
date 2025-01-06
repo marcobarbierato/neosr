@@ -168,7 +168,7 @@ class pancamotf(data.Dataset):
         # for spatially variant blur
         
         if self.opt.get('linear_blur') is not None:
-            final_angle = start_angle+crop_pad_size
+            final_angle = start_angle+crop_pad_size//self.scale
             final_angle_n = (final_angle-202)/(1350-202)
             dfactor2=float(1+final_angle_n)
             # blur_sigmafinal = max([i*dfactor2 for i in self.blur_sigma])
