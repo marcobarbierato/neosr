@@ -41,6 +41,9 @@ class GANLoss(nn.Module):
         else:
             raise NotImplementedError(f"GAN type {self.gan_type} is not implemented.")
 
+    def update_loss_weight(self, weight):
+        self.loss_weight = weight
+    
     def get_target_label(self, input, target_is_real):
         """Get target label.
 

@@ -33,7 +33,8 @@ class pancamotf(otf):
             self.gt = data['gt'].to(device=self.device, non_blocking=True)
 
             self.kernel1 = data['kernel1'].to(device=self.device, non_blocking=True)
-            self.kernel2 = data['kernel2'].to(device=self.device, non_blocking=True)
+            if data.get('kernel2', None) is not None:
+                self.kernel2 = data['kernel2'].to(device=self.device, non_blocking=True)
             self.sinc_kernel = data['sinc_kernel'].to(device=self.device, non_blocking=True)
             
             if 'kernel1final' in data:
@@ -99,8 +100,8 @@ class pancamotf(otf):
                 else:
                     scale = 1
                 mode = random.choice(['area', 'bilinear', 'bicubic'])
-                out = F.interpolate(
-                    out, size=(int(ori_h / self.opt['scale'] * scale), int(ori_w / self.opt['scale'] * scale)), mode=mode)
+                # out = F.interpolate(
+                #     out, size=(int(ori_h / self.opt['scale'] * scale), int(ori_w / self.opt['scale'] * scale)), mode=mode)
                 # add noise
                 gray_noise_prob = self.opt['gray_noise_prob2']
                 if rng.uniform() < self.opt['gaussian_noise_prob2']:

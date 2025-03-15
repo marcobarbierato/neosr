@@ -253,6 +253,8 @@ def train_pipeline(root_path):
                 model.update_learning_rate(
                     current_iter, warmup_iter=opt["train"].get("warmup_iter", -1)
                 )
+                model.update_loss_weights(current_iter)
+                
                 iter_timer.record()
                 if current_iter == 1:
                     # reset start time in msg_logger for more accurate eta_time
@@ -268,6 +270,7 @@ def train_pipeline(root_path):
                 if current_iter_log % print_freq == 0:
                     log_vars = {"epoch": epoch, "iter": current_iter_log}
                     log_vars.update({"lrs": model.get_current_learning_rate()})
+                    log_vars.update({"gan_weight": model.get_current_gan_weight()})
                     log_vars.update({
                         "time": iter_timer.get_avg_time(),
                         #"data_time": data_timer.get_avg_time(),

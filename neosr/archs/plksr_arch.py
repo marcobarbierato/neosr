@@ -351,6 +351,8 @@ class PLKBlock(nn.Module):
 class plksr(nn.Module):
     def __init__(
         self,
+        num_in_ch: int = 3, 
+        num_out_ch: int = 3,
         dim: int = 64,
         n_blocks: int = 28,
         upscaling_factor: int = upscale,
@@ -369,7 +371,7 @@ class plksr(nn.Module):
         self.feats = nn.Sequential(
             *[
                 nn.Conv2d(
-                    3, dim, 3, 1, 1
+                    num_in_ch, dim, 3, 1, 1
                 )  # I wonder if it is possible to upgrade it to add support for a different number of channels
             ]
             + [
@@ -387,7 +389,7 @@ class plksr(nn.Module):
                 )
                 for _ in range(n_blocks)
             ]
-            + [nn.Conv2d(dim, 3 * upscaling_factor**2, 3, 1, 1)]
+            + [nn.Conv2d(dim, num_out_ch * upscaling_factor**2, 3, 1, 1)]
         )
         trunc_normal_(self.feats[0].weight, std=0.02)
         trunc_normal_(self.feats[-1].weight, std=0.02)

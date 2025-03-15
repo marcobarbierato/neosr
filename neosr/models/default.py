@@ -120,6 +120,12 @@ class default():
             self.accum_ters = 1
 
         # define losses
+        if train_opt.get('loss_interaction') == True:
+            logger = get_root_logger()
+            logger.info('Loss [Interaction] enabled.')
+            self.loss_interaction = True
+        else:
+            self.loss_interaction = None
         if train_opt.get('pixel_opt'):
             self.cri_pix = build_loss(train_opt['pixel_opt']).to(self.device, memory_format=torch.channels_last, non_blocking=True)
         else:
@@ -220,10 +226,18 @@ class default():
 
         self.net_d_iters = train_opt.get('net_d_iters', 1)
         self.net_d_init_iters = train_opt.get('net_d_init_iters', 0)
+        self.net_d_hold_iters = train_opt.get('net_d_hold_iters', 0)
 
         # set up optimizers and schedulers
         self.setup_optimizers()
         self.setup_schedulers()
+
+        # set up loss weights update
+
+        self.gan_scheduler = train_opt.get('gan_weight_schedule', {'milestones':[]})
+        self.gan_n_updates = len(self.gan_scheduler['milestones'])
+        self.gan_current_update = 0
+        
 
     def get_optimizer(self, optim_type, params, lr, **kwargs):
         if optim_type in {'Adam', 'adam'}:
@@ -293,6 +307,9 @@ class default():
     def get_current_learning_rate(self):
         return [param_group['lr'] for param_group in self.optimizers[0].param_groups]
 
+    def get_current_gan_weight(self):
+        return self.cri_gan.loss_weight
+    
     def _set_lr(self, lr_groups_l):
         """Set learning rate for warm-up.
 
@@ -408,12 +425,15 @@ class default():
                     l_g_total += l_g_luma
                     loss_dict['l_g_luma'] = l_g_luma
                 # GAN loss
-                if self.cri_gan:
+                if self.cri_gan and self.cri_gan.loss_weight > 0:
                     fake_g_pred = self.net_d(self.output)
                     l_g_gan = self.cri_gan(fake_g_pred, True, is_disc=False)
                     l_g_total += l_g_gan
                     loss_dict['l_g_gan'] = l_g_gan
-
+                if self.loss_interaction:
+                    interaction = l_g_pix*l_g_gan
+                    l_g_total += interaction
+                    loss_dict['l_g_inter'] = interaction
         # add total generator loss for tensorboard tracking
         loss_dict['l_g_total'] = l_g_total
         self.loss_g_sum += l_g_total           
@@ -430,7 +450,7 @@ class default():
             self.gradscaler.step(self.optimizer_g)
 
         # optimize net_d
-        if self.net_d is not None:
+        if self.net_d is not None and current_iter > self.net_d_hold_iters:
             for p in self.net_d.parameters():
                 p.requires_grad = True
 
@@ -499,8 +519,10 @@ class default():
             self.loss_sum_dict[k] += v
 
         print_freq = self.opt['logger']['print_freq']
-        if current_iter % print_freq == 0:
 
+        if current_iter % print_freq == 0:
+            print(self.loss_dict)
+            print(self.loss_sum_dict)
             for k, v in self.loss_sum_dict.items():
                 key = k + '_mean'
                 loss_dict[key] = torch.tensor(v/print_freq)
@@ -538,6 +560,33 @@ class default():
                     [v / warmup_iter * current_iter for v in init_lr_g])
             # set learning rate
             self._set_lr(warm_up_lr_l)
+
+    def update_loss_weights(self, current_iter):
+        
+        
+            # if current_iter >= self.gan_scheduler['milestones'][0]:
+            #     self.gan_scheduler['milestones'].pop(0)
+            #     if self.cri_gan:
+            #         weight = self.gan_scheduler['weights'].pop(0)
+            #         self.cri_gan.update_loss_weight(weight)
+            #     self.gan_n_updates -= 1s
+        if current_iter >= self.gan_scheduler['milestones'][self.gan_current_update]:
+            self.gan_current_update += 1
+            self.gan_n_updates -= 1
+
+        if self.gan_n_updates > 0:
+            
+            if self.cri_gan:
+                cm = self.gan_scheduler['milestones'][self.gan_current_update-1]
+                nm = self.gan_scheduler['milestones'][self.gan_current_update]
+                alpha = (current_iter-cm)/(nm - cm)
+                cw = self.gan_scheduler['weights'][self.gan_current_update-1]
+                nw = self.gan_scheduler['weights'][self.gan_current_update]
+                weight = (1-alpha)*cw + alpha*nw
+                self.cri_gan.update_loss_weight(weight)
+            
+
+
 
     def test(self):
         self.tile = self.opt['val'].get('tile', -1)
